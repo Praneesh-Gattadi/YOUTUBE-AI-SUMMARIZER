@@ -1,0 +1,8 @@
+langchain
+langchain_community
+langchain-google-genai
+google-genai
+youtube-transcript-api
+yt-dlp
+python-dotenv
+streamlit
