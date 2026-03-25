@@ -146,23 +146,45 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash") -> str:
             is_blocked = "m4a" not in table_output and "mp4" not in table_output
             
             if is_blocked:
-                # 4. Proxy Fallback Trigger
+                # 4. Enhanced Proxy Fallback Trigger
                 import requests
+                proxies = []
                 try:
-                    proxy_url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=3000"
+                    # Target SSL (HTTPS) and SOCKS for better resistance to datacenter blocking
+                    proxy_url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http,socks4,socks5&timeout=2000&country=all&ssl=yes&anonymity=all"
                     res = requests.get(proxy_url, timeout=5)
                     proxies = [p.strip() for p in res.text.split('\n') if p.strip()]
                 except Exception:
-                    proxies = []
+                    pass
                     
                 if proxies:
-                    for proxy in proxies[:15]: # Test top 15
+                    max_tests = 30 # Increased from 15
+                    for proxy_addr in proxies[:max_tests]:
+                        proxy_full = f"http://{proxy_addr}" if ":" in proxy_addr else proxy_addr
+                        
+                        # Stage A: Try Transcript API with Proxy First (Faster)
+                        try:
+                            from youtube_transcript_api import YouTubeTranscriptApi
+                            from youtube_transcript_api.formatters import TextFormatter
+                            p_session = requests.Session()
+                            p_session.proxies = {'http': proxy_full, 'https': proxy_full}
+                            p_session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                            
+                            p_api = YouTubeTranscriptApi(http_client=p_session)
+                            p_transcript = p_api.list(video_id).find_transcript(['en']).fetch()
+                            text = TextFormatter().format_transcript(p_transcript)
+                            if len(text) > 100:
+                                return text
+                        except Exception:
+                            pass
+
+                        # Stage B: Try yt-dlp Audio with Proxy
                         test_opts = {
                             'format': 'bestaudio/bestvideo+bestaudio/18/140/worst',
                             'outtmpl': f"{audio_path_base}.%(ext)s", 
                             'quiet': True,
-                            'proxy': f"http://{proxy}",
-                            'socket_timeout': 5, # Skip slow/dead proxies quickly
+                            'proxy': proxy_full,
+                            'socket_timeout': 4, # Optimized from 5
                             'extractor_args': {'youtube': {'client': ['ios', 'android']}},
                             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
                         }
@@ -176,13 +198,12 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash") -> str:
                         except Exception:
                             continue
                 
-                # Check if proxy saved us
+                # Final check after loop
                 files_check = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
                 if not files_check:
-                    raise Exception(f"Datacenter Blocked! Zero media tracks pulled. Proxies tested: {len(proxies[:15])}. \nDetails:\n{table_output}")
+                    raise Exception(f"Datacenter Blocked! All {len(proxies[:max_tests]) if proxies else 0} proxies failed to unlock media streams. \nDetails:\n{table_output[:500]}")
             else:
-                # Case where formats DO exist but download didn't run because of listformats=True
-                # Remove 'listformats' and run standard download
+                # Normal path if not blocked
                 del ydl_opts_audio['listformats']
                 with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_final:
                     ydl_final.download([link])
