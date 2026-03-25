@@ -155,16 +155,29 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
             is_blocked = "m4a" not in table_output and "mp4" not in table_output
             
             if is_blocked:
-                # 4. Enhanced Proxy Fallback Trigger
+                # 4. Nuclear Proxy Fallback (Multi-Source + Elite Anonymity)
                 import requests
                 proxies = []
+                
+                # Source 1: Proxyscrape (SSL/Elite)
                 try:
-                    # Target SSL (HTTPS) and SOCKS for better resistance to datacenter blocking
-                    proxy_url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http,socks4,socks5&timeout=2000&country=all&ssl=yes&anonymity=all"
-                    res = requests.get(proxy_url, timeout=5)
-                    proxies = [p.strip() for p in res.text.split('\n') if p.strip()]
-                except Exception:
-                    pass
+                    ps_url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http,socks4,socks5&timeout=1500&country=all&ssl=yes&anonymity=elite"
+                    res = requests.get(ps_url, timeout=4)
+                    proxies.extend([p.strip() for p in res.text.split('\n') if p.strip()])
+                except Exception: pass
+                
+                # Source 2: Geonode (High-Speed Diversified)
+                try:
+                    gn_url = "https://proxylist.geonode.com/api/proxy-list?limit=50&page=1&sort_by=lastChecked&sort_type=desc&protocols=http,https,socks4,socks5"
+                    res = requests.get(gn_url, timeout=4).json()
+                    for p in res.get('data', []):
+                        proxies.append(f"{p['ip']}:{p['port']}")
+                except Exception: pass
+                
+                # Deduplicate and Shuffle to ensure diverse testing
+                import random
+                proxies = list(set(proxies))
+                random.shuffle(proxies)
                     
                 if proxies:
                     log(f"🛡️ AWS Datacenter Blocked detected. Testing {len(proxies[:30])} proxy tunnels...")
@@ -201,14 +214,15 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                         except Exception:
                             pass
 
-                        # Stage B: Try yt-dlp Audio with Proxy
+                        # Stage B: Try yt-dlp Audio with Proxy + Heavy Client Spoofing
                         test_opts = {
                             'format': 'bestaudio/bestvideo+bestaudio/18/140/worst',
                             'outtmpl': f"{audio_path_base}.%(ext)s", 
                             'quiet': True,
                             'proxy': proxy_full,
-                            'socket_timeout': 4, # Optimized from 5
-                            'extractor_args': {'youtube': {'client': ['ios', 'android']}},
+                            'socket_timeout': 4,
+                            # Rotate clients: ios/android/tv/web_embedded
+                            'extractor_args': {'youtube': {'client': ['ios', 'android', 'tv', 'web_embedded', 'mweb']}},
                             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
                         }
                         try:
