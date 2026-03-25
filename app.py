@@ -96,19 +96,32 @@ st.markdown("""
 st.markdown('<h1 class="main-hero">🎬 YouTube Article Generator</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-hero">Instantly transform any long-form video into a premium blog post and fully coded web page.</p>', unsafe_allow_html=True)
 
+# Initialize session state for multi-user isolation on AWS
+if "google_api_key" not in st.session_state:
+    st.session_state.google_api_key = os.getenv("GOOGLE_API_KEY") # Initial fallback
+    # Clear global ENV to prevent other sessions from seeing this one
+    if os.getenv("GOOGLE_API_KEY"):
+        os.environ["GOOGLE_API_KEY"] = ""
+
 with st.sidebar:
     st.header("⚙️ Configuration")
-    api_key_google = os.getenv("GOOGLE_API_KEY")
     
-    if not api_key_google or "your_" in api_key_google:
+    # Check if we have a key in the current session
+    current_key = st.session_state.google_api_key
+    
+    if not current_key or "your_" in current_key:
         user_key = st.text_input("Enter Gemini API Key", type="password")
         if user_key:
-            os.environ["GOOGLE_API_KEY"] = user_key
-            st.success("API Key updated!")
+            st.session_state.google_api_key = user_key
+            st.success("API Key updated for this session!")
+            st.rerun()
     else:
-        st.success("✅ Gemini API Key Found")
+        st.success("✅ Gemini API Key Found (Session Active)")
+        if st.button("Change API Key"):
+            st.session_state.google_api_key = ""
+            st.rerun()
 
-    model_name = st.selectbox("Select Gemini Model", ["gemini-2.5-flash", "gemini-2.5-pro"], index=0)
+    model_name = st.selectbox("Select Gemini Model", ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"], index=0)
     
     if not os.path.exists("cookies.txt"):
         st.divider()
@@ -125,16 +138,24 @@ generate_clicked = st.button("🚀 Generate Content", use_container_width=True, 
 if generate_clicked:
     if not youtube_url:
         st.error("Please enter a URL.")
-    elif not os.getenv("GOOGLE_API_KEY"):
-        st.error("Please provide a Gemini API Key.")
+    elif not st.session_state.google_api_key:
+        st.error("Please provide a Gemini API Key in the sidebar.")
     else:
         try:
             with st.status("🚀 Initializing AI Engine...", expanded=True) as status:
                 status.write("⏳ Extracting audio and summarizing content...")
-                article_content = generate_article(youtube_url, model_name=model_name)
+                article_content = generate_article(
+                    youtube_url, 
+                    model_name=model_name, 
+                    api_key=st.session_state.google_api_key
+                )
             
                 status.write("🎨 Designing premium webpage layouts...")
-                webpage_response = generate_webpage(article_content, model_name=model_name)
+                webpage_response = generate_webpage(
+                    article_content, 
+                    model_name=model_name,
+                    api_key=st.session_state.google_api_key
+                )
                 codes = parse_webpage_output(webpage_response)
 
                 status.update(label="✅ Content Generated Successfully!", state="complete", expanded=False)

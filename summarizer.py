@@ -10,13 +10,14 @@ from langchain_community.document_loaders import YoutubeLoader
 
 load_dotenv()
 
-def get_llm(model_name="gemini-2.0-flash"):
-    api_key = os.getenv("GOOGLE_API_KEY")
+def get_llm(model_name="gemini-2.0-flash", api_key=None):
+    if not api_key:
+        api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key or "your_" in api_key:
         raise ValueError("GOOGLE_API_KEY not found. Please check your .env or sidebar.")
     return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
 
-def extract_transcript(link: str, model_name="gemini-2.0-flash") -> str:
+def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -> str:
     import yt_dlp
     from google import genai
     
@@ -213,8 +214,10 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash") -> str:
             actual_audio_path = os.path.join(temp_dir, files[0])
 
             # Gemini File Processing
+            if not api_key:
+                api_key = os.getenv("GOOGLE_API_KEY")
             client = genai.Client(
-                api_key=os.getenv("GOOGLE_API_KEY"),
+                api_key=api_key,
                 http_options={'timeout': 600000} # 10 minutes for large audio files
             )
             uploaded_file = client.files.upload(file=actual_audio_path)
@@ -265,21 +268,21 @@ def clean_vtt(vtt_content):
         if not cleaned or cleaned[-1] != line: cleaned.append(line)
     return ' '.join(cleaned)
 
-def generate_article_from_text(transcript_text, model_name="gemini-2.0-flash"):
-    llm = get_llm(model_name)
+def generate_article_from_text(transcript_text, model_name="gemini-2.0-flash", api_key=None):
+    llm = get_llm(model_name, api_key=api_key)
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an AI research assistant."),
         ("user", "Summarize this into a professional technical article:\n\n{transcript}")
     ])
     return (prompt | llm | StrOutputParser()).invoke({"transcript": transcript_text})
 
-def generate_article(youtube_url, model_name="gemini-2.0-flash"):
-    transcript = extract_transcript(youtube_url, model_name)
+def generate_article(youtube_url, model_name="gemini-2.0-flash", api_key=None):
+    transcript = extract_transcript(youtube_url, model_name, api_key=api_key)
     if transcript.startswith("ERROR:"): return transcript
-    return generate_article_from_text(transcript, model_name)
+    return generate_article_from_text(transcript, model_name, api_key=api_key)
 
-def generate_webpage(article_content, model_name="gemini-2.0-flash"):
-    llm = get_llm(model_name)
+def generate_webpage(article_content, model_name="gemini-2.0-flash", api_key=None):
+    llm = get_llm(model_name, api_key=api_key)
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
             "You are a master Web Designer and Front-End Developer. Use exact structure strings. "
