@@ -143,18 +143,22 @@ if generate_clicked:
     else:
         try:
             with st.status("🚀 Initializing AI Engine...", expanded=True) as status:
-                status.write("⏳ Extracting audio and summarizing content...")
+                def update_status(msg):
+                    status.write(msg)
+                
                 article_content = generate_article(
                     youtube_url, 
                     model_name=model_name, 
-                    api_key=st.session_state.google_api_key
+                    api_key=st.session_state.google_api_key,
+                    status_callback=update_status
                 )
             
-                status.write("🎨 Designing premium webpage layouts...")
+                update_status("🎨 Designing premium webpage layouts...")
                 webpage_response = generate_webpage(
                     article_content, 
                     model_name=model_name,
-                    api_key=st.session_state.google_api_key
+                    api_key=st.session_state.google_api_key,
+                    status_callback=update_status
                 )
                 codes = parse_webpage_output(webpage_response)
 

@@ -17,7 +17,12 @@ def get_llm(model_name="gemini-2.0-flash", api_key=None):
         raise ValueError("GOOGLE_API_KEY not found. Please check your .env or sidebar.")
     return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
 
-def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -> str:
+def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, status_callback=None) -> str:
+    def log(msg):
+        if status_callback: status_callback(msg)
+        else: print(msg)
+    
+    log("🚀 Initializing specialized YouTube crawler...")
     import yt_dlp
     from google import genai
     
@@ -85,12 +90,14 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -
             if cookie_count > 0:
                 session.cookies.update(jar)
         try:
+            log("🔍 Checking for existing subtitles/transcripts...")
             api = YouTubeTranscriptApi(http_client=session)
             transcript_list = api.list(video_id)
             transcript = transcript_list.find_transcript(['en'])
             text = TextFormatter().format_transcript(transcript.fetch())
             
             if len(text) > 100:
+                log("✅ Transcript found via direct API!")
                 return text
         except Exception:
             pass
@@ -136,6 +143,7 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -
             
             import io, contextlib
             f_out = io.StringIO()
+            log("🏗️ Building format manifest for AWS IP...")
             try:
                 with contextlib.redirect_stdout(f_out):
                     with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl:
@@ -159,8 +167,10 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -
                     pass
                     
                 if proxies:
+                    log(f"🛡️ AWS Datacenter Blocked detected. Testing {len(proxies[:30])} proxy tunnels...")
                     max_tests = 30 # Increased from 15
-                    for proxy_addr in proxies[:max_tests]:
+                    for i, proxy_addr in enumerate(proxies[:max_tests]):
+                        log(f"🔄 Testing proxy tunnel #{i+1}/{max_tests}...")
                         proxy_full = f"http://{proxy_addr}" if ":" in proxy_addr else proxy_addr
                         
                         # Stage A: Try Transcript API with Proxy First (Faster)
@@ -175,6 +185,7 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -
                             p_transcript = p_api.list(video_id).find_transcript(['en']).fetch()
                             text = TextFormatter().format_transcript(p_transcript)
                             if len(text) > 100:
+                                log(f"✨ Tunnel #{i+1} successful! Transcript extracted.")
                                 return text
                         except Exception:
                             pass
@@ -195,6 +206,7 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -
                             # If download succeeds, break out
                             files_p = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
                             if files_p:
+                                log(f"📥 Tunnel #{i+1} successful! Audio stream secured.")
                                 break
                         except Exception:
                             continue
@@ -220,11 +232,13 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -
                 api_key=api_key,
                 http_options={'timeout': 600000} # 10 minutes for large audio files
             )
+            log("☁️ Uploading audio payload to Gemini AI Engine...")
             uploaded_file = client.files.upload(file=actual_audio_path)
             
             # Wait with backoff
             wait_time = 0
             while uploaded_file.state.name == "PROCESSING":
+                log(f"🧠 Gemini is processing audio... ({wait_time}s)")
                 if wait_time > 400: raise Exception("Gemini processing timeout.")
                 time.sleep(15)
                 wait_time += 15
@@ -234,6 +248,7 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None) -
                 # If a large file fails, provide a clear instruction to the user
                 raise Exception("The video is too long for the current API limits. Please try a video under 20 minutes.")
 
+            log("✍️ Generating comprehensive summary...")
             response = client.models.generate_content(
                 model=model_name,
                 contents=[
@@ -276,12 +291,14 @@ def generate_article_from_text(transcript_text, model_name="gemini-2.0-flash", a
     ])
     return (prompt | llm | StrOutputParser()).invoke({"transcript": transcript_text})
 
-def generate_article(youtube_url, model_name="gemini-2.0-flash", api_key=None):
-    transcript = extract_transcript(youtube_url, model_name, api_key=api_key)
+def generate_article(youtube_url, model_name="gemini-2.0-flash", api_key=None, status_callback=None):
+    transcript = extract_transcript(youtube_url, model_name, api_key=api_key, status_callback=status_callback)
     if transcript.startswith("ERROR:"): return transcript
+    if status_callback: status_callback("📝 Drafting professional article...")
     return generate_article_from_text(transcript, model_name, api_key=api_key)
 
-def generate_webpage(article_content, model_name="gemini-2.0-flash", api_key=None):
+def generate_webpage(article_content, model_name="gemini-2.0-flash", api_key=None, status_callback=None):
+    if status_callback: status_callback("🎨 Engineering premium webpage CSS/HTML...")
     llm = get_llm(model_name, api_key=api_key)
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
