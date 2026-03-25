@@ -10,19 +10,13 @@ from langchain_community.document_loaders import YoutubeLoader
 
 load_dotenv()
 
-def get_llm(model_name="gemini-2.0-flash", api_key=None):
-    if not api_key:
-        api_key = os.getenv("GOOGLE_API_KEY")
+def get_llm(model_name="gemini-2.0-flash"):
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key or "your_" in api_key:
         raise ValueError("GOOGLE_API_KEY not found. Please check your .env or sidebar.")
     return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
 
-def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, status_callback=None) -> str:
-    def log(msg):
-        if status_callback: status_callback(msg)
-        else: print(msg)
-    
-    log("🚀 Initializing specialized YouTube crawler...")
+def extract_transcript(link: str, model_name="gemini-2.0-flash") -> str:
     import yt_dlp
     from google import genai
     
@@ -90,14 +84,12 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
             if cookie_count > 0:
                 session.cookies.update(jar)
         try:
-            log("🔍 Checking for existing subtitles/transcripts...")
             api = YouTubeTranscriptApi(http_client=session)
             transcript_list = api.list(video_id)
             transcript = transcript_list.find_transcript(['en'])
             text = TextFormatter().format_transcript(transcript.fetch())
             
             if len(text) > 100:
-                log("✅ Transcript found via direct API!")
                 return text
         except Exception:
             pass
@@ -143,7 +135,6 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
             
             import io, contextlib
             f_out = io.StringIO()
-            log("🏗️ Building format manifest for AWS IP...")
             try:
                 with contextlib.redirect_stdout(f_out):
                     with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl:
@@ -155,133 +146,43 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
             is_blocked = "m4a" not in table_output and "mp4" not in table_output
             
             if is_blocked:
-                # 4. Nuclear Proxy Fallback (Multi-Source + Elite Anonymity)
+                # 4. Proxy Fallback Trigger
                 import requests
-                proxies = []
-                
-                # Source 1: Proxyscrape (SSL/Elite)
                 try:
-                    ps_url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http,socks4,socks5&timeout=1500&country=all&ssl=yes&anonymity=elite"
-                    res = requests.get(ps_url, timeout=4)
-                    proxies.extend([p.strip() for p in res.text.split('\n') if p.strip()])
-                except Exception: pass
-                
-                # Source 2: Geonode (High-Speed Diversified)
-                try:
-                    gn_url = "https://proxylist.geonode.com/api/proxy-list?limit=50&page=1&sort_by=lastChecked&sort_type=desc&protocols=http,https,socks4,socks5"
-                    res = requests.get(gn_url, timeout=4).json()
-                    for p in res.get('data', []):
-                        proxies.append(f"{p['ip']}:{p['port']}")
-                except Exception: pass
-                
-                # Deduplicate and Shuffle to ensure diverse testing
-                import random
-                proxies = list(set(proxies))
-                random.shuffle(proxies)
+                    proxy_url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=3000"
+                    res = requests.get(proxy_url, timeout=5)
+                    proxies = [p.strip() for p in res.text.split('\n') if p.strip()]
+                except Exception:
+                    proxies = []
                     
                 if proxies:
-                    log(f"🛡️ AWS Datacenter Blocked detected. Testing {len(proxies[:30])} proxy tunnels...")
-                    max_tests = 40 # Increased to find winners in larger SOCKS pools
-                    for i, proxy_addr in enumerate(proxies[:max_tests]):
-                        log(f"🔄 Testing proxy tunnel #{i+1}/{max_tests}...")
-                        
-                        # Detect protocol (SOCKS vs HTTP)
-                        if any(s in proxy_addr.lower() for s in ["socks4", "socks5"]):
-                            proxy_full = proxy_addr
-                        else:
-                            proxy_full = f"http://{proxy_addr}" if "://" not in proxy_addr else proxy_addr
-                        
-                        # Pre-Check: Is the proxy even alive? (3s timeout)
+                    for proxy in proxies[:15]: # Test top 15
+                        test_opts = {
+                            'format': 'bestaudio/bestvideo+bestaudio/18/140/worst',
+                            'outtmpl': f"{audio_path_base}.%(ext)s", 
+                            'quiet': True,
+                            'proxy': f"http://{proxy}",
+                            'socket_timeout': 5, # Skip slow/dead proxies quickly
+                            'extractor_args': {'youtube': {'client': ['ios', 'android']}},
+                            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
+                        }
                         try:
-                            # Use SOCKS5 supporting request if protocol matched
-                            test_res = requests.get("https://www.google.com", proxies={'http': proxy_full, 'https': proxy_full}, timeout=3)
-                            if test_res.status_code != 200: continue
-                        except Exception: continue
-                        
-                        # Stage A: Try Transcript API with Proxy
-                        try:
-                            def try_extract(use_cookies=True):
-                                from youtube_transcript_api import YouTubeTranscriptApi
-                                from youtube_transcript_api.formatters import TextFormatter
-                                p_session = requests.Session()
-                                p_session.proxies = {'http': proxy_full, 'https': proxy_full}
-                                p_session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                                
-                                # Only attach cookies if requested (Clean Session Fallback)
-                                if use_cookies and os.path.exists("cookies.txt"):
-                                    from requests.cookies import RequestsCookieJar
-                                    jar = RequestsCookieJar()
-                                    with open("cookies.txt", 'r') as f:
-                                        for line in f:
-                                            if line.startswith("#") and not line.startswith("#HttpOnly_"): continue
-                                            curr_line = line[10:] if line.startswith("#HttpOnly_") else line
-                                            if not curr_line.strip(): continue
-                                            parts = curr_line.strip().split("\t")
-                                            if len(parts) >= 7:
-                                                domain, path, name, value = parts[0], parts[2], parts[5], parts[6]
-                                                if "youtube.com" in domain or "google.com" in domain:
-                                                    dom_sub = f".{domain.lstrip('.')}" if domain.startswith(".") else domain
-                                                    if not dom_sub.startswith("."): dom_sub = f".{dom_sub}"
-                                                    jar.set(name, value, domain=dom_sub, path=path)
-                                    p_session.cookies.update(jar)
-
-                                p_api = YouTubeTranscriptApi(http_client=p_session)
-                                p_list = p_api.list(video_id)
-                                p_transcript = p_list.find_transcript(['en']).fetch()
-                                return TextFormatter().format_transcript(p_transcript)
-
-                            # First try with potentially blocked cookies, then clean
-                            text = None
-                            try: text = try_extract(use_cookies=True)
-                            except: text = try_extract(use_cookies=False)
-
-                            if text and len(text) > 100:
-                                log(f"✨ Tunnel #{i+1} successful! Transcript extracted.")
-                                return text
+                            with yt_dlp.YoutubeDL(test_opts) as ydl_p:
+                                ydl_p.download([link])
+                            # If download succeeds, break out
+                            files_p = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
+                            if files_p:
+                                break
                         except Exception:
-                            pass
-
-                        # Stage B: Try yt-dlp Audio with Proxy + Heavy Client Spoofing
-                        # Attempt BOTH with and without cookies on fixed proxy
-                        for use_cookies in [True, False]:
-                            test_opts = {
-                                'format': 'bestaudio/bestvideo+bestaudio/18/140/worst',
-                                'outtmpl': f"{audio_path_base}.%(ext)s", 
-                                'quiet': True,
-                                'proxy': proxy_full,
-                                'socket_timeout': 4,
-                                'extractor_args': {'youtube': {'client': ['ios', 'android', 'tv', 'web_embedded', 'mweb']}},
-                                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
-                            }
-                            if use_cookies and os.path.exists("cookies.txt"): 
-                                test_opts['cookiefile'] = 'cookies.txt'
-                            
-                            try:
-                                with yt_dlp.YoutubeDL(test_opts) as ydl_p:
-                                    ydl_p.download([link])
-                                files_p = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
-                                if files_p:
-                                    log(f"📥 Tunnel #{i+1} successful! Audio stream secured (Clean={not use_cookies}).")
-                                    break
-                            except Exception:
-                                continue
-                        
-                        # If either cookie or clean worked, break proxy loop
-                        files_loop = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
-                        if files_loop: break
+                            continue
                 
-                # Final check after loop
+                # Check if proxy saved us
                 files_check = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
                 if not files_check:
-                    raise Exception(
-                        "🚨 AWS Datacenter Blocked! All 40 proxy tunnels failed to unlock this video. \n\n"
-                        f"**Raw Last Proxy Error**: {table_output[:300] if table_output else 'No output data'}\n\n"
-                        "💡 **SOLUTION**: Since it works on your LOCAL machine, please use the 'Upload cookies.txt' box in the sidebar. "
-                        "Export cookies from your Chrome/Edge browser using the 'Get cookies.txt LOCALLY' extension on your computer, then upload it to this dashboard. "
-                        "This will allow the AWS server to use your verified personal session to bypass the block."
-                    )
+                    raise Exception(f"Datacenter Blocked! Zero media tracks pulled. Proxies tested: {len(proxies[:15])}. \nDetails:\n{table_output}")
             else:
-                # Normal path if not blocked
+                # Case where formats DO exist but download didn't run because of listformats=True
+                # Remove 'listformats' and run standard download
                 del ydl_opts_audio['listformats']
                 with yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_final:
                     ydl_final.download([link])
@@ -291,19 +192,15 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
             actual_audio_path = os.path.join(temp_dir, files[0])
 
             # Gemini File Processing
-            if not api_key:
-                api_key = os.getenv("GOOGLE_API_KEY")
             client = genai.Client(
-                api_key=api_key,
+                api_key=os.getenv("GOOGLE_API_KEY"),
                 http_options={'timeout': 600000} # 10 minutes for large audio files
             )
-            log("☁️ Uploading audio payload to Gemini AI Engine...")
             uploaded_file = client.files.upload(file=actual_audio_path)
             
             # Wait with backoff
             wait_time = 0
             while uploaded_file.state.name == "PROCESSING":
-                log(f"🧠 Gemini is processing audio... ({wait_time}s)")
                 if wait_time > 400: raise Exception("Gemini processing timeout.")
                 time.sleep(15)
                 wait_time += 15
@@ -313,7 +210,6 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                 # If a large file fails, provide a clear instruction to the user
                 raise Exception("The video is too long for the current API limits. Please try a video under 20 minutes.")
 
-            log("✍️ Generating comprehensive summary...")
             response = client.models.generate_content(
                 model=model_name,
                 contents=[
@@ -348,23 +244,21 @@ def clean_vtt(vtt_content):
         if not cleaned or cleaned[-1] != line: cleaned.append(line)
     return ' '.join(cleaned)
 
-def generate_article_from_text(transcript_text, model_name="gemini-2.0-flash", api_key=None):
-    llm = get_llm(model_name, api_key=api_key)
+def generate_article_from_text(transcript_text, model_name="gemini-2.0-flash"):
+    llm = get_llm(model_name)
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an AI research assistant."),
         ("user", "Summarize this into a professional technical article:\n\n{transcript}")
     ])
     return (prompt | llm | StrOutputParser()).invoke({"transcript": transcript_text})
 
-def generate_article(youtube_url, model_name="gemini-2.0-flash", api_key=None, status_callback=None):
-    transcript = extract_transcript(youtube_url, model_name, api_key=api_key, status_callback=status_callback)
+def generate_article(youtube_url, model_name="gemini-2.0-flash"):
+    transcript = extract_transcript(youtube_url, model_name)
     if transcript.startswith("ERROR:"): return transcript
-    if status_callback: status_callback("📝 Drafting professional article...")
-    return generate_article_from_text(transcript, model_name, api_key=api_key)
+    return generate_article_from_text(transcript, model_name)
 
-def generate_webpage(article_content, model_name="gemini-2.0-flash", api_key=None, status_callback=None):
-    if status_callback: status_callback("🎨 Engineering premium webpage CSS/HTML...")
-    llm = get_llm(model_name, api_key=api_key)
+def generate_webpage(article_content, model_name="gemini-2.0-flash"):
+    llm = get_llm(model_name)
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
             "You are a master Web Designer and Front-End Developer. Use exact structure strings. "

@@ -96,63 +96,28 @@ st.markdown("""
 st.markdown('<h1 class="main-hero">🎬 YouTube Article Generator</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-hero">Instantly transform any long-form video into a premium blog post and fully coded web page.</p>', unsafe_allow_html=True)
 
-# Initialize session state for multi-user isolation on AWS
-if "google_api_key" not in st.session_state:
-    st.session_state.google_api_key = os.getenv("GOOGLE_API_KEY") # Initial fallback
-    # Clear global ENV to prevent other sessions from seeing this one
-    if os.getenv("GOOGLE_API_KEY"):
-        os.environ["GOOGLE_API_KEY"] = ""
-
 with st.sidebar:
     st.header("⚙️ Configuration")
+    api_key_google = os.getenv("GOOGLE_API_KEY")
     
-    # Check if we have a key in the current session
-    current_key = st.session_state.google_api_key
-    
-    if not current_key or "your_" in current_key:
+    if not api_key_google or "your_" in api_key_google:
         user_key = st.text_input("Enter Gemini API Key", type="password")
         if user_key:
-            st.session_state.google_api_key = user_key
-            st.success("API Key updated for this session!")
-            st.rerun()
+            os.environ["GOOGLE_API_KEY"] = user_key
+            st.success("API Key updated!")
     else:
-        st.success("✅ Gemini API Key Found (Session Active)")
-        if st.button("Change API Key"):
-            st.session_state.google_api_key = ""
-            st.rerun()
+        st.success("✅ Gemini API Key Found")
 
-    model_name = st.selectbox("Select Gemini Model", ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"], index=0)
+    model_name = st.selectbox("Select Gemini Model", ["gemini-2.5-flash", "gemini-2.5-pro"], index=0)
     
     if not os.path.exists("cookies.txt"):
         st.divider()
-        st.error("🚀 **AWS Deployment: Action Required**")
-        st.markdown("""
-            YouTube is blocking this AWS server's IP. To fix this, you MUST:
-            1. Install the **'Get cookies.txt LOCALLY'** extension on your computer.
-            2. Open YouTube on your browser and export the cookies.
-            3. Upload the file below.
-        """)
-        uploaded_cookies = st.file_uploader("Upload cookies.txt", type=["txt"], key="cookie_uploader")
-        if uploaded_cookies and "cookie_saved" not in st.session_state:
+        st.markdown("**🛡️ Server Authorization Required**")
+        uploaded_cookies = st.file_uploader("Upload cookies.txt file", type=["txt"], help="Admin Only: Upload cookies to bypass AWS IP blocks permanently.")
+        if uploaded_cookies:
             with open("cookies.txt", "wb") as f:
                 f.write(uploaded_cookies.getbuffer())
-            st.session_state.cookie_saved = True
-            st.success("✅ Server Authorized! Click anywhere to refresh.")
-            st.rerun()
-    else:
-        # Reset the flag if the file is already there
-        if "cookie_saved" in st.session_state:
-            del st.session_state.cookie_saved
-            
-        st.divider()
-        st.info("💎 **Server Identity: Residential Mode**")
-        if st.toggle("Show Cookie Admin"):
-            uploaded_cookies = st.file_uploader("Replace cookies.txt", type=["txt"])
-            if uploaded_cookies:
-                with open("cookies.txt", "wb") as f:
-                    f.write(uploaded_cookies.getbuffer())
-                st.success("✅ Cookies Updated!")
-                st.rerun()
+            st.success("✅ Server Authorized! Please refresh the page. This box will now disappear for all users.")
 
 youtube_url = st.text_input("Enter YouTube URL", placeholder="https://youtu.be/...")
 generate_clicked = st.button("🚀 Generate Content", use_container_width=True, type="primary")
@@ -160,28 +125,16 @@ generate_clicked = st.button("🚀 Generate Content", use_container_width=True, 
 if generate_clicked:
     if not youtube_url:
         st.error("Please enter a URL.")
-    elif not st.session_state.google_api_key:
-        st.error("Please provide a Gemini API Key in the sidebar.")
+    elif not os.getenv("GOOGLE_API_KEY"):
+        st.error("Please provide a Gemini API Key.")
     else:
         try:
             with st.status("🚀 Initializing AI Engine...", expanded=True) as status:
-                def update_status(msg):
-                    status.write(msg)
-                
-                article_content = generate_article(
-                    youtube_url, 
-                    model_name=model_name, 
-                    api_key=st.session_state.google_api_key,
-                    status_callback=update_status
-                )
+                status.write("⏳ Extracting audio and summarizing content...")
+                article_content = generate_article(youtube_url, model_name=model_name)
             
-                update_status("🎨 Designing premium webpage layouts...")
-                webpage_response = generate_webpage(
-                    article_content, 
-                    model_name=model_name,
-                    api_key=st.session_state.google_api_key,
-                    status_callback=update_status
-                )
+                status.write("🎨 Designing premium webpage layouts...")
+                webpage_response = generate_webpage(article_content, model_name=model_name)
                 codes = parse_webpage_output(webpage_response)
 
                 status.update(label="✅ Content Generated Successfully!", state="complete", expanded=False)
