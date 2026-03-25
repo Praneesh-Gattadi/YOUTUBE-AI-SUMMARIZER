@@ -181,60 +181,81 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                     
                 if proxies:
                     log(f"🛡️ AWS Datacenter Blocked detected. Testing {len(proxies[:30])} proxy tunnels...")
-                    max_tests = 20 # Reduced from 30 for faster perceived performance
+                    max_tests = 40 # Increased to find winners in larger SOCKS pools
                     for i, proxy_addr in enumerate(proxies[:max_tests]):
                         log(f"🔄 Testing proxy tunnel #{i+1}/{max_tests}...")
-                        proxy_full = f"http://{proxy_addr}" if ":" in proxy_addr else proxy_addr
+                        
+                        # Detect protocol (SOCKS vs HTTP)
+                        if any(s in proxy_addr.lower() for s in ["socks4", "socks5"]):
+                            proxy_full = proxy_addr
+                        else:
+                            proxy_full = f"http://{proxy_addr}" if "://" not in proxy_addr else proxy_addr
                         
                         # Pre-Check: Is the proxy even alive? (3s timeout)
                         try:
-                            # Use a lightweight check to see if the proxy can reach Google/YouTube
+                            # Use SOCKS5 supporting request if protocol matched
                             test_res = requests.get("https://www.google.com", proxies={'http': proxy_full, 'https': proxy_full}, timeout=3)
-                            if test_res.status_code != 200:
-                                continue
-                        except Exception:
-                            continue
+                            if test_res.status_code != 200: continue
+                        except Exception: continue
                         
-                        # Stage A: Try Transcript API with Proxy First (Faster)
+                        # Stage A: Try Transcript API with Proxy
                         try:
-                            from youtube_transcript_api import YouTubeTranscriptApi
-                            from youtube_transcript_api.formatters import TextFormatter
-                            p_session = requests.Session()
-                            p_session.proxies = {'http': proxy_full, 'https': proxy_full}
-                            p_session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-                            
-                            # Enforce timeout on the session itself if possible
-                            # Note: YouTubeTranscriptApi doesn't always expose timeout, so the pre-check above is crucial
-                            p_api = YouTubeTranscriptApi(http_client=p_session)
-                            p_transcript = p_api.list(video_id).find_transcript(['en']).fetch()
-                            text = TextFormatter().format_transcript(p_transcript)
-                            if len(text) > 100:
+                            def try_extract(use_cookies=True):
+                                from youtube_transcript_api import YouTubeTranscriptApi
+                                from youtube_transcript_api.formatters import TextFormatter
+                                p_session = requests.Session()
+                                p_session.proxies = {'http': proxy_full, 'https': proxy_full}
+                                p_session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                                
+                                # Only attach cookies if requested (Clean Session Fallback)
+                                if use_cookies and os.path.exists("cookies.txt"):
+                                    # Reuse the session cookie loader logic or just skip for speed
+                                    pass 
+
+                                p_api = YouTubeTranscriptApi(http_client=p_session)
+                                p_list = p_api.list(video_id)
+                                p_transcript = p_list.find_transcript(['en']).fetch()
+                                return TextFormatter().format_transcript(p_transcript)
+
+                            # First try with potentially blocked cookies, then clean
+                            text = None
+                            try: text = try_extract(use_cookies=True)
+                            except: text = try_extract(use_cookies=False)
+
+                            if text and len(text) > 100:
                                 log(f"✨ Tunnel #{i+1} successful! Transcript extracted.")
                                 return text
                         except Exception:
                             pass
 
                         # Stage B: Try yt-dlp Audio with Proxy + Heavy Client Spoofing
-                        test_opts = {
-                            'format': 'bestaudio/bestvideo+bestaudio/18/140/worst',
-                            'outtmpl': f"{audio_path_base}.%(ext)s", 
-                            'quiet': True,
-                            'proxy': proxy_full,
-                            'socket_timeout': 4,
-                            # Rotate clients: ios/android/tv/web_embedded
-                            'extractor_args': {'youtube': {'client': ['ios', 'android', 'tv', 'web_embedded', 'mweb']}},
-                            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
-                        }
-                        try:
-                            with yt_dlp.YoutubeDL(test_opts) as ydl_p:
-                                ydl_p.download([link])
-                            # If download succeeds, break out
-                            files_p = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
-                            if files_p:
-                                log(f"📥 Tunnel #{i+1} successful! Audio stream secured.")
-                                break
-                        except Exception:
-                            continue
+                        # Attempt BOTH with and without cookies on fixed proxy
+                        for use_cookies in [True, False]:
+                            test_opts = {
+                                'format': 'bestaudio/bestvideo+bestaudio/18/140/worst',
+                                'outtmpl': f"{audio_path_base}.%(ext)s", 
+                                'quiet': True,
+                                'proxy': proxy_full,
+                                'socket_timeout': 4,
+                                'extractor_args': {'youtube': {'client': ['ios', 'android', 'tv', 'web_embedded', 'mweb']}},
+                                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'm4a'}]
+                            }
+                            if use_cookies and os.path.exists("cookies.txt"): 
+                                test_opts['cookiefile'] = 'cookies.txt'
+                            
+                            try:
+                                with yt_dlp.YoutubeDL(test_opts) as ydl_p:
+                                    ydl_p.download([link])
+                                files_p = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
+                                if files_p:
+                                    log(f"📥 Tunnel #{i+1} successful! Audio stream secured (Clean={not use_cookies}).")
+                                    break
+                            except Exception:
+                                continue
+                        
+                        # If either cookie or clean worked, break proxy loop
+                        files_loop = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
+                        if files_loop: break
                 
                 # Final check after loop
                 files_check = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
