@@ -168,10 +168,19 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                     
                 if proxies:
                     log(f"🛡️ AWS Datacenter Blocked detected. Testing {len(proxies[:30])} proxy tunnels...")
-                    max_tests = 30 # Increased from 15
+                    max_tests = 20 # Reduced from 30 for faster perceived performance
                     for i, proxy_addr in enumerate(proxies[:max_tests]):
                         log(f"🔄 Testing proxy tunnel #{i+1}/{max_tests}...")
                         proxy_full = f"http://{proxy_addr}" if ":" in proxy_addr else proxy_addr
+                        
+                        # Pre-Check: Is the proxy even alive? (3s timeout)
+                        try:
+                            # Use a lightweight check to see if the proxy can reach Google/YouTube
+                            test_res = requests.get("https://www.google.com", proxies={'http': proxy_full, 'https': proxy_full}, timeout=3)
+                            if test_res.status_code != 200:
+                                continue
+                        except Exception:
+                            continue
                         
                         # Stage A: Try Transcript API with Proxy First (Faster)
                         try:
@@ -181,6 +190,8 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                             p_session.proxies = {'http': proxy_full, 'https': proxy_full}
                             p_session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
                             
+                            # Enforce timeout on the session itself if possible
+                            # Note: YouTubeTranscriptApi doesn't always expose timeout, so the pre-check above is crucial
                             p_api = YouTubeTranscriptApi(http_client=p_session)
                             p_transcript = p_api.list(video_id).find_transcript(['en']).fetch()
                             text = TextFormatter().format_transcript(p_transcript)
