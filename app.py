@@ -125,12 +125,29 @@ with st.sidebar:
     
     if not os.path.exists("cookies.txt"):
         st.divider()
-        st.markdown("**🛡️ Server Authorization Required**")
-        uploaded_cookies = st.file_uploader("Upload cookies.txt file", type=["txt"], help="Admin Only: Upload cookies to bypass AWS IP blocks permanently.")
+        st.error("🚀 **AWS Deployment: Action Required**")
+        st.markdown("""
+            YouTube is blocking this AWS server's IP. To fix this, you MUST:
+            1. Install the **'Get cookies.txt LOCALLY'** extension on your computer.
+            2. Open YouTube on your browser and export the cookies.
+            3. Upload the file below.
+        """)
+        uploaded_cookies = st.file_uploader("Upload cookies.txt", type=["txt"])
         if uploaded_cookies:
             with open("cookies.txt", "wb") as f:
                 f.write(uploaded_cookies.getbuffer())
-            st.success("✅ Server Authorized! Please refresh the page. This box will now disappear for all users.")
+            st.success("✅ Server Authorized! Refreshing...")
+            st.rerun()
+    else:
+        st.divider()
+        st.info("💎 **Server Identity: Residential Mode**")
+        if st.toggle("Show Cookie Admin"):
+            uploaded_cookies = st.file_uploader("Replace cookies.txt", type=["txt"])
+            if uploaded_cookies:
+                with open("cookies.txt", "wb") as f:
+                    f.write(uploaded_cookies.getbuffer())
+                st.success("✅ Cookies Updated!")
+                st.rerun()
 
 youtube_url = st.text_input("Enter YouTube URL", placeholder="https://youtu.be/...")
 generate_clicked = st.button("🚀 Generate Content", use_container_width=True, type="primary")

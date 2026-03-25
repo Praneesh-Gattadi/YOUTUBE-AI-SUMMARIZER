@@ -209,8 +209,21 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                                 
                                 # Only attach cookies if requested (Clean Session Fallback)
                                 if use_cookies and os.path.exists("cookies.txt"):
-                                    # Reuse the session cookie loader logic or just skip for speed
-                                    pass 
+                                    from requests.cookies import RequestsCookieJar
+                                    jar = RequestsCookieJar()
+                                    with open("cookies.txt", 'r') as f:
+                                        for line in f:
+                                            if line.startswith("#") and not line.startswith("#HttpOnly_"): continue
+                                            curr_line = line[10:] if line.startswith("#HttpOnly_") else line
+                                            if not curr_line.strip(): continue
+                                            parts = curr_line.strip().split("\t")
+                                            if len(parts) >= 7:
+                                                domain, path, name, value = parts[0], parts[2], parts[5], parts[6]
+                                                if "youtube.com" in domain or "google.com" in domain:
+                                                    dom_sub = f".{domain.lstrip('.')}" if domain.startswith(".") else domain
+                                                    if not dom_sub.startswith("."): dom_sub = f".{dom_sub}"
+                                                    jar.set(name, value, domain=dom_sub, path=path)
+                                    p_session.cookies.update(jar)
 
                                 p_api = YouTubeTranscriptApi(http_client=p_session)
                                 p_list = p_api.list(video_id)
@@ -260,7 +273,12 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                 # Final check after loop
                 files_check = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
                 if not files_check:
-                    raise Exception(f"Datacenter Blocked! All {len(proxies[:max_tests]) if proxies else 0} proxies failed to unlock media streams. \nDetails:\n{table_output[:500]}")
+                    raise Exception(
+                        "🚨 AWS Datacenter Blocked! All 40 proxy tunnels failed to unlock this video. \n\n"
+                        "💡 **SOLUTION**: Since it works on your LOCAL machine, please use the 'Upload cookies.txt' box in the sidebar. "
+                        "Export cookies from your Chrome/Edge browser using the 'Get cookies.txt LOCALLY' extension on your computer, then upload it to this dashboard. "
+                        "This will allow the AWS server to use your verified personal session to bypass the block."
+                    )
             else:
                 # Normal path if not blocked
                 del ydl_opts_audio['listformats']
