@@ -275,6 +275,7 @@ def extract_transcript(link: str, model_name="gemini-2.0-flash", api_key=None, s
                 if not files_check:
                     raise Exception(
                         "🚨 AWS Datacenter Blocked! All 40 proxy tunnels failed to unlock this video. \n\n"
+                        f"**Raw Last Proxy Error**: {table_output[:300] if table_output else 'No output data'}\n\n"
                         "💡 **SOLUTION**: Since it works on your LOCAL machine, please use the 'Upload cookies.txt' box in the sidebar. "
                         "Export cookies from your Chrome/Edge browser using the 'Get cookies.txt LOCALLY' extension on your computer, then upload it to this dashboard. "
                         "This will allow the AWS server to use your verified personal session to bypass the block."

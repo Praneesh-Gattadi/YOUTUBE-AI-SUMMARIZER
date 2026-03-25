@@ -132,13 +132,18 @@ with st.sidebar:
             2. Open YouTube on your browser and export the cookies.
             3. Upload the file below.
         """)
-        uploaded_cookies = st.file_uploader("Upload cookies.txt", type=["txt"])
-        if uploaded_cookies:
+        uploaded_cookies = st.file_uploader("Upload cookies.txt", type=["txt"], key="cookie_uploader")
+        if uploaded_cookies and "cookie_saved" not in st.session_state:
             with open("cookies.txt", "wb") as f:
                 f.write(uploaded_cookies.getbuffer())
-            st.success("✅ Server Authorized! Refreshing...")
+            st.session_state.cookie_saved = True
+            st.success("✅ Server Authorized! Click anywhere to refresh.")
             st.rerun()
     else:
+        # Reset the flag if the file is already there
+        if "cookie_saved" in st.session_state:
+            del st.session_state.cookie_saved
+            
         st.divider()
         st.info("💎 **Server Identity: Residential Mode**")
         if st.toggle("Show Cookie Admin"):
